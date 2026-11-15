@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package cart;
+
+option go_package = "trabalho-gb/proto/cartpb";
+
+// ─── Tipos base ────────────────────────────────────────────────────────────
+
+message Produto {
+  string  id          = 1;
+  string  nome        = 2;
+  string  descricao   = 3;
+  string  categoria   = 4;
+  string  marca       = 5;
+  double  preco       = 6;
+  double  peso_kg     = 7;
+  int32   estoque     = 8;
+  string  sku         = 9;
+  string  imagem_url  = 10;
+}
+
+message Desconto {
+  string codigo      = 1;
+  string tipo        = 2; // "percentual" | "fixo"
+  double valor       = 3;
+  string descricao   = 4;
+}
+
+message ItemCarrinho {
+  Produto  produto    = 1;
+  int32    quantidade = 2;
+  double   subtotal   = 3;
+  repeated Desconto descontos = 4;
+}
+
+message EnderecoEntrega {
+  string rua         = 1;
+  string numero      = 2;
+  string complemento = 3;
+  string bairro      = 4;
+  string cidade      = 5;
+  string estado      = 6;
+  string cep         = 7;
+  string pais        = 8;
+}
+
+message Carrinho {
+  string             id               = 1;
+  string             usuario_id       = 2;
+  repeated ItemCarrinho itens         = 3;
+  double             total_bruto      = 4;
+  double             total_desconto   = 5;
+  double             total_liquido    = 6;
+  double             frete            = 7;
+  string             moeda            = 8;
+  string             criado_em        = 9;
+  string             atualizado_em    = 10;
+  EnderecoEntrega    endereco_entrega = 11;
+  string             observacoes      = 12;
+}
+
+// ─── Requisições ───────────────────────────────────────────────────────────
+
+message AdicionarItemRequest {
+  string carrinho_id = 1;
+  string produto_id  = 2;
+  int32  quantidade  = 3;
+}
+
+message ObterCarrinhoRequest {
+  string carrinho_id = 1;
+}
+
+message CheckoutRequest {
+  string          carrinho_id      = 1;
+  EnderecoEntrega endereco_entrega = 2;
+  string          metodo_pagamento = 3;
+}
+
+// ─── Respostas ─────────────────────────────────────────────────────────────
+
+message AdicionarItemResponse {
+  bool    sucesso    = 1;
+  string  mensagem   = 2;
+  Carrinho carrinho  = 3;
+}
+
+message ObterCarrinhoResponse {
+  Carrinho carrinho  = 1;
+}
+
+message Pedido {
+  string   id               = 1;
+  string   carrinho_id      = 2;
+  string   usuario_id       = 3;
+  string   status           = 4;
+  double   total            = 5;
+  string   metodo_pagamento = 6;
+  string   criado_em        = 7;
+  EnderecoEntrega endereco  = 8;
+  repeated ItemCarrinho itens = 9;
+}
+
+message CheckoutResponse {
+  bool   sucesso  = 1;
+  string mensagem = 2;
+  Pedido pedido   = 3;
+}
+
+// ─── Serviço ────────────────────────────────────────────────────────────────
+
+service CarrinhoService {
+  rpc AdicionarItem  (AdicionarItemRequest)  returns (AdicionarItemResponse);
+  rpc ObterCarrinho  (ObterCarrinhoRequest)  returns (ObterCarrinhoResponse);
+  rpc Checkout       (CheckoutRequest)       returns (CheckoutResponse);
+}

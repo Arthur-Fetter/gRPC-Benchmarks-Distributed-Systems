@@ -1,0 +1,22 @@
+# docker-compose.yml — Omarchy (Carrinho Service)
+# Sobe o Carrinho Service no Arch Linux expondo gRPC e HTTP para a rede local.
+version: "3.9"
+
+services:
+  carrinho:
+    build:
+      context: ..   # raiz do projeto
+      dockerfile: carrinho/Dockerfile
+    container_name: carrinho-service
+    ports:
+      - "50051:50051"   # gRPC
+      - "8080:8080"     # HTTP/JSON
+    environment:
+      - GRPC_PORT=50051
+      - HTTP_PORT=8080
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

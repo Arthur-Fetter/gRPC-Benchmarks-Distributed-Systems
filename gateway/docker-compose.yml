@@ -1,0 +1,25 @@
+# docker-compose.yml — macOS (Gateway Service)
+# Sobe o Gateway Service localmente. O Carrinho Service deve estar
+# rodando no Omarchy antes de iniciar este compose.
+#
+# Uso:
+#   CARRINHO_HOST=192.168.1.42 docker compose up
+version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: ..   # raiz do projeto
+      dockerfile: gateway/Dockerfile
+    container_name: gateway-service
+    ports:
+      - "127.0.0.1:3000:3000"   # apenas localhost — não expõe para a rede
+    environment:
+      - CARRINHO_HOST=${CARRINHO_HOST:-localhost}
+      - GATEWAY_PORT=3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
