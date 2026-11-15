@@ -249,6 +249,71 @@ def grafico_serializacao_por_itens(df: pd.DataFrame):
     salvar(fig, "7_serializacao_por_itens")
 
 
+
+# ─── Gráfico 8 e 9: Multiplexing ─────────────────────────────────────────────
+
+def grafico_concorrencia(caminho_csv: str):
+    """
+    Lê o CSV de concorrência e gera dois gráficos:
+      8 — Throughput (req/s) vs workers simultâneos
+      9 — Latência média e p99 vs workers simultâneos
+    """
+    if not os.path.exists(caminho_csv):
+        print(f"  ⚠️  CSV de concorrência não encontrado: {caminho_csv}")
+        return
+
+    df = pd.read_csv(caminho_csv)
+    df = df[df["erros"] == 0]
+    df["latencia_media_ms"] = df["latencia_media_us"] / 1000.0
+    df["latencia_p99_ms"]   = df["latencia_p99_us"]   / 1000.0
+
+    sub = df.groupby(["protocolo", "concorrencia"]).agg(
+        throughput_medio=("throughput_rps",    "mean"),
+        p99_medio        =("latencia_p99_ms",  "mean"),
+        media_medio      =("latencia_media_ms","mean"),
+    ).reset_index()
+
+    # Gráfico 8 — Throughput
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for proto, cor in CORES.items():
+        dados = sub[sub["protocolo"] == proto]
+        ax.plot(dados["concorrencia"], dados["throughput_medio"],
+                marker="o", label=proto, color=cor, linewidth=2.5, markersize=6)
+    ax.set_title(
+        "Throughput vs Concorrência\n"
+        "(HTTP/2 Multiplexing — gRPC vs HTTP/1.1 — JSON)",
+        fontsize=14, fontweight="bold",
+    )
+    ax.set_xlabel("Número de workers simultâneos")
+    ax.set_ylabel("Throughput médio (req/s)")
+    ax.legend(title="Protocolo")
+    plt.tight_layout()
+    salvar(fig, "8_throughput_concorrencia")
+
+    # Gráfico 9 — Latência média e p99
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    for ax, col, titulo in zip(
+        axes,
+        ["media_medio", "p99_medio"],
+        ["Latência Média", "Latência p99"],
+    ):
+        for proto, cor in CORES.items():
+            dados = sub[sub["protocolo"] == proto]
+            ax.plot(dados["concorrencia"], dados[col],
+                    marker="s", label=proto, color=cor, linewidth=2.5, markersize=6)
+        ax.set_title(titulo, fontweight="bold")
+        ax.set_xlabel("Número de workers simultâneos")
+        ax.set_ylabel("Latência (ms)")
+        ax.legend(title="Protocolo")
+    fig.suptitle(
+        "Latência sob Carga Concorrente\n"
+        "(como cada protocolo degrada com o aumento de workers)",
+        fontsize=14, fontweight="bold",
+    )
+    plt.tight_layout()
+    salvar(fig, "9_latencia_concorrencia")
+
+
 def salvar(fig: plt.Figure, nome: str):
     os.makedirs(PASTA_GRAFICOS, exist_ok=True)
     caminho = os.path.join(PASTA_GRAFICOS, f"{nome}.png")
@@ -281,5 +346,9 @@ if __name__ == "__main__":
     grafico_fator_compressao(df)
     grafico_heatmap(df)
     grafico_serializacao_por_itens(df)
+
+    # Gráficos de concorrência (CSV separado)
+    csv_conc = sys.argv[2] if len(sys.argv) > 2 else "resultados/concorrencia_latest.csv"
+    grafico_concorrencia(csv_conc)
 
     print(f"\n✅ Todos os gráficos salvos em './{PASTA_GRAFICOS}/'")

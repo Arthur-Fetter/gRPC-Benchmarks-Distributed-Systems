@@ -40,8 +40,15 @@ import (
 	pb "trabalho-gb/proto/cartpb"
 )
 
-// tamanhosCarrinho define os tamanhos de carrinho testados no benchmark.
+// tamanhosCarrinho define os tamanhos de carrinho testados no benchmark serial.
 var tamanhosCarrinho = []int{1, 10, 100, 1000, 10000}
+
+// niveisConcorrencia define o número de workers simultâneos no teste de multiplexing.
+var niveisConcorrencia = []int{1, 5, 10, 25, 50, 100}
+
+// numItensConcorrencia é o tamanho de carrinho fixo usado no teste de multiplexing.
+// Escolhemos 100 itens — payload médio, representativo de uso real.
+const numItensConcorrencia = 100
 
 // ─── Estado global do benchmark ──────────────────────────────────────────────
 
@@ -57,6 +64,19 @@ type estadoBenchmark struct {
 }
 
 var estado = &estadoBenchmark{}
+
+// estadoConcorrencia armazena o progresso do teste de multiplexing.
+type estadoConcorrenciaBenchmark struct {
+	mu         sync.RWMutex
+	rodando    bool
+	progresso  int
+	total      int
+	medicoes   []metrics.MedicaoConcorrencia
+	iniciadoEm time.Time
+	erroFatal  string
+}
+
+var estadoConc = &estadoConcorrenciaBenchmark{}
 
 // ─── Configuração ─────────────────────────────────────────────────────────────
 
@@ -214,6 +234,9 @@ func handlerResultados(w http.ResponseWriter, r *http.Request) {
 
 // ─── Execução do benchmark ────────────────────────────────────────────────────
 
+// pastaResultados é onde os CSVs são salvos automaticamente ao fim de cada benchmark.
+const pastaResultados = "resultados"
+
 // executarBenchmark roda o ciclo completo de medições e atualiza o estado global.
 func executarBenchmark(conn *grpc.ClientConn, baseHTTP string, iteracoes, aquecimento int) {
 	clienteGRPC := pb.NewCarrinhoServiceClient(conn)
@@ -252,7 +275,15 @@ func executarBenchmark(conn *grpc.ClientConn, baseHTTP string, iteracoes, aqueci
 	estado.rodando = false
 	estado.mu.Unlock()
 
-	log.Printf("✅ Benchmark concluído. Total de medições: %d", len(todasMedicoes))
+	// Salva CSV em disco automaticamente
+	nomeArquivo := fmt.Sprintf("%s/serial_%s.csv", pastaResultados, time.Now().Format("20060102_150405"))
+	if err := metrics.SalvarCSV(todasMedicoes, nomeArquivo); err != nil {
+		log.Printf("⚠️  Erro ao salvar CSV: %v", err)
+	} else {
+		log.Printf("💾 CSV salvo em: %s", nomeArquivo)
+	}
+
+	log.Printf("✅ Benchmark serial concluído. Total de medições: %d", len(todasMedicoes))
 }
 
 // ─── Benchmarks gRPC ──────────────────────────────────────────────────────────
@@ -446,6 +477,308 @@ func escreverCSV(w io.Writer, medicoes []metrics.Medicao) {
 	}
 }
 
+// ─── Teste de multiplexing (concorrência) ────────────────────────────────────
+
+// handlerIniciarConcorrencia dispara o benchmark de concorrência em background.
+//
+// Body JSON (todos opcionais):
+//
+//	{ "rodadas": 10, "aquecimento": 3 }
+func handlerIniciarConcorrencia(cfg config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "método não permitido", http.StatusMethodNotAllowed)
+			return
+		}
+
+		estadoConc.mu.Lock()
+		if estadoConc.rodando {
+			estadoConc.mu.Unlock()
+			responderJSON(w, http.StatusConflict, map[string]string{
+				"erro": "benchmark de concorrência já em execução",
+			})
+			return
+		}
+		estadoConc.mu.Unlock()
+
+		rodadas := 10
+		aquecimento := 3
+
+		var params struct {
+			Rodadas     int `json:"rodadas"`
+			Aquecimento int `json:"aquecimento"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &params); err == nil {
+				if params.Rodadas > 0 {
+					rodadas = params.Rodadas
+				}
+				if params.Aquecimento >= 0 {
+					aquecimento = params.Aquecimento
+				}
+			}
+		}
+
+		conn, err := grpc.NewClient(cfg.portaGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			responderJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"erro": fmt.Sprintf("falha ao conectar ao Carrinho Service: %v", err),
+			})
+			return
+		}
+
+		total := len(niveisConcorrencia) * rodadas * 2
+
+		estadoConc.mu.Lock()
+		estadoConc.rodando = true
+		estadoConc.progresso = 0
+		estadoConc.total = total
+		estadoConc.medicoes = nil
+		estadoConc.iniciadoEm = time.Now()
+		estadoConc.erroFatal = ""
+		estadoConc.mu.Unlock()
+
+		go func() {
+			defer conn.Close()
+			executarBenchmarkConcorrencia(conn, cfg.baseHTTP, rodadas, aquecimento)
+		}()
+
+		responderJSON(w, http.StatusAccepted, map[string]interface{}{
+			"mensagem":      "benchmark de concorrência iniciado",
+			"rodadas":       rodadas,
+			"aquecimento":   aquecimento,
+			"concorrencias": niveisConcorrencia,
+			"num_itens":     numItensConcorrencia,
+			"total":         total,
+			"status_url":    "/concorrencia/status",
+			"resultado_url": "/concorrencia/resultados",
+		})
+	}
+}
+
+// handlerStatusConcorrencia retorna o progresso do benchmark de concorrência.
+func handlerStatusConcorrencia(w http.ResponseWriter, r *http.Request) {
+	estadoConc.mu.RLock()
+	defer estadoConc.mu.RUnlock()
+
+	pct := 0.0
+	if estadoConc.total > 0 {
+		pct = float64(estadoConc.progresso) / float64(estadoConc.total) * 100
+	}
+	responderJSON(w, http.StatusOK, map[string]interface{}{
+		"rodando":    estadoConc.rodando,
+		"progresso":  estadoConc.progresso,
+		"total":      estadoConc.total,
+		"percentual": fmt.Sprintf("%.1f%%", pct),
+		"medicoes":   len(estadoConc.medicoes),
+		"iniciado_em": estadoConc.iniciadoEm.Format(time.RFC3339),
+		"erro":       estadoConc.erroFatal,
+	})
+}
+
+// handlerResultadosConcorrencia devolve o CSV do teste de multiplexing.
+func handlerResultadosConcorrencia(w http.ResponseWriter, r *http.Request) {
+	estadoConc.mu.RLock()
+	rodando := estadoConc.rodando
+	medicoes := estadoConc.medicoes
+	estadoConc.mu.RUnlock()
+
+	if rodando {
+		responderJSON(w, http.StatusPartialContent, map[string]string{
+			"erro": "benchmark ainda em execução",
+		})
+		return
+	}
+	if len(medicoes) == 0 {
+		responderJSON(w, http.StatusNoContent, map[string]string{
+			"erro": "nenhum resultado disponível — inicie um benchmark primeiro",
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", `attachment; filename="concorrencia.csv"`)
+	cw := csv.NewWriter(w)
+	defer cw.Flush()
+	_ = cw.Write([]string{
+		"protocolo", "concorrencia", "num_itens", "rodada",
+		"throughput_rps", "latencia_media_us",
+		"latencia_p50_us", "latencia_p95_us", "latencia_p99_us", "latencia_max_us",
+		"erros", "timestamp",
+	})
+	for _, m := range medicoes {
+		_ = cw.Write([]string{
+			string(m.Protocolo),
+			strconv.Itoa(m.Concorrencia),
+			strconv.Itoa(m.NumItens),
+			strconv.Itoa(m.Rodada),
+			strconv.FormatFloat(m.Throughput, 'f', 3, 64),
+			strconv.FormatInt(m.LatenciaMedia.Microseconds(), 10),
+			strconv.FormatInt(m.LatenciaP50.Microseconds(), 10),
+			strconv.FormatInt(m.LatenciaP95.Microseconds(), 10),
+			strconv.FormatInt(m.LatenciaP99.Microseconds(), 10),
+			strconv.FormatInt(m.LatenciaMax.Microseconds(), 10),
+			strconv.Itoa(m.Erros),
+			m.Timestamp.Format(time.RFC3339Nano),
+		})
+	}
+}
+
+// executarBenchmarkConcorrencia dispara N workers simultâneos para cada nível
+// de concorrência e mede throughput e latências percentílicas.
+func executarBenchmarkConcorrencia(conn *grpc.ClientConn, baseHTTP string, rodadas, aquecimento int) {
+	clienteGRPC := pb.NewCarrinhoServiceClient(conn)
+	// Cliente HTTP com pool de conexões grande o suficiente para não limitar o teste
+	clienteHTTP := &http.Client{
+		Timeout: 120 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        200,
+			MaxIdleConnsPerHost: 200,
+		},
+	}
+
+	carrinhoID := fmt.Sprintf("cart-%d", numItensConcorrencia)
+	var todasMedicoes []metrics.MedicaoConcorrencia
+
+	for _, conc := range niveisConcorrencia {
+		log.Printf("⚡ Testando concorrência=%d...", conc)
+
+		// Aquecimento
+		for i := 0; i < aquecimento; i++ {
+			_ = rodadaConcorrente(clienteGRPC, clienteHTTP, baseHTTP, carrinhoID, conc, -1)
+		}
+
+		// Rodadas registradas
+		for r := 0; r < rodadas; r++ {
+			pares := rodadaConcorrente(clienteGRPC, clienteHTTP, baseHTTP, carrinhoID, conc, r)
+			todasMedicoes = append(todasMedicoes, pares...)
+
+			estadoConc.mu.Lock()
+			estadoConc.progresso += 2 // gRPC + JSON
+			estadoConc.mu.Unlock()
+		}
+	}
+
+	// Salva CSV em disco
+	nomeArquivo := fmt.Sprintf("%s/concorrencia_%s.csv", pastaResultados, time.Now().Format("20060102_150405"))
+	if err := metrics.SalvarCSVConcorrencia(todasMedicoes, nomeArquivo); err != nil {
+		log.Printf("⚠️  Erro ao salvar CSV de concorrência: %v", err)
+	} else {
+		log.Printf("💾 CSV de concorrência salvo em: %s", nomeArquivo)
+	}
+
+	estadoConc.mu.Lock()
+	estadoConc.medicoes = todasMedicoes
+	estadoConc.rodando = false
+	estadoConc.mu.Unlock()
+
+	log.Printf("✅ Benchmark de concorrência concluído. Total de medições: %d", len(todasMedicoes))
+}
+
+// rodadaConcorrente dispara `conc` workers simultaneamente para gRPC e JSON
+// e retorna as métricas agregadas de cada protocolo.
+func rodadaConcorrente(
+	grpcClient pb.CarrinhoServiceClient,
+	httpClient *http.Client,
+	baseHTTP, carrinhoID string,
+	conc, rodada int,
+) []metrics.MedicaoConcorrencia {
+	resultados := make([]metrics.MedicaoConcorrencia, 0, 2)
+	for _, proto := range []metrics.Protocolo{metrics.GRPC, metrics.JSON} {
+		m := dispararWorkers(grpcClient, httpClient, baseHTTP, carrinhoID, proto, conc, rodada)
+		resultados = append(resultados, m)
+	}
+	return resultados
+}
+
+// dispararWorkers lança `conc` goroutines simultâneas para um protocolo,
+// coleta as latências individuais e calcula as métricas agregadas.
+func dispararWorkers(
+	grpcClient pb.CarrinhoServiceClient,
+	httpClient *http.Client,
+	baseHTTP, carrinhoID string,
+	proto metrics.Protocolo,
+	conc, rodada int,
+) metrics.MedicaoConcorrencia {
+	latencias := make([]time.Duration, conc)
+	erros := 0
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	inicio := time.Now()
+	for i := 0; i < conc; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			var lat time.Duration
+			var errStr string
+
+			if proto == metrics.GRPC {
+				m := benchGRPCObterCarrinho(grpcClient, carrinhoID, numItensConcorrencia, idx)
+				lat = m.TempoTotal
+				errStr = m.Erro
+			} else {
+				m := benchHTTPObterCarrinho(httpClient, baseHTTP, carrinhoID, numItensConcorrencia, idx)
+				lat = m.TempoTotal
+				errStr = m.Erro
+			}
+
+			mu.Lock()
+			latencias[idx] = lat
+			if errStr != "" {
+				erros++
+			}
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+	duracao := time.Since(inicio)
+
+	// Calcula percentis ordenando as latências
+	ordenadas := make([]time.Duration, len(latencias))
+	copy(ordenadas, latencias)
+	ordenarDuracoes(ordenadas)
+
+	n := len(ordenadas)
+	var soma time.Duration
+	for _, l := range ordenadas {
+		soma += l
+	}
+
+	return metrics.MedicaoConcorrencia{
+		Protocolo:     proto,
+		Concorrencia:  conc,
+		NumItens:      numItensConcorrencia,
+		Rodada:        rodada,
+		Throughput:    float64(conc) / duracao.Seconds(),
+		LatenciaMedia: soma / time.Duration(n),
+		LatenciaP50:   percentil(ordenadas, 50),
+		LatenciaP95:   percentil(ordenadas, 95),
+		LatenciaP99:   percentil(ordenadas, 99),
+		LatenciaMax:   ordenadas[n-1],
+		Erros:         erros,
+		Timestamp:     time.Now(),
+	}
+}
+
+// percentil retorna o percentil p (0-100) de uma fatia já ordenada.
+func percentil(ordenadas []time.Duration, p int) time.Duration {
+	if len(ordenadas) == 0 {
+		return 0
+	}
+	idx := (len(ordenadas)-1)*p/100
+	return ordenadas[idx]
+}
+
+// ordenarDuracoes ordena uma fatia de durations in-place (insertion sort — N pequeno).
+func ordenarDuracoes(d []time.Duration) {
+	for i := 1; i < len(d); i++ {
+		for j := i; j > 0 && d[j] < d[j-1]; j-- {
+			d[j], d[j-1] = d[j-1], d[j]
+		}
+	}
+}
+
 func responderJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -461,9 +794,12 @@ func main() {
 	log.Printf("   Carrinho Service: %s (gRPC) | %s (HTTP)", cfg.portaGRPC, cfg.baseHTTP)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/benchmark/iniciar",    handlerIniciar(cfg))
-	mux.HandleFunc("/benchmark/status",     handlerStatus)
-	mux.HandleFunc("/benchmark/resultados", handlerResultados)
+	mux.HandleFunc("/benchmark/iniciar",        handlerIniciar(cfg))
+	mux.HandleFunc("/benchmark/status",         handlerStatus)
+	mux.HandleFunc("/benchmark/resultados",     handlerResultados)
+	mux.HandleFunc("/concorrencia/iniciar",      handlerIniciarConcorrencia(cfg))
+	mux.HandleFunc("/concorrencia/status",       handlerStatusConcorrencia)
+	mux.HandleFunc("/concorrencia/resultados",   handlerResultadosConcorrencia)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		responderJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -472,6 +808,9 @@ func main() {
 	log.Printf("     POST http://localhost:%s/benchmark/iniciar", cfg.gatewayPort)
 	log.Printf("     GET  http://localhost:%s/benchmark/status", cfg.gatewayPort)
 	log.Printf("     GET  http://localhost:%s/benchmark/resultados", cfg.gatewayPort)
+	log.Printf("     POST http://localhost:%s/concorrencia/iniciar", cfg.gatewayPort)
+	log.Printf("     GET  http://localhost:%s/concorrencia/status", cfg.gatewayPort)
+	log.Printf("     GET  http://localhost:%s/concorrencia/resultados", cfg.gatewayPort)
 
 	if err := http.ListenAndServe(":"+cfg.gatewayPort, mux); err != nil {
 		log.Fatalf("falha ao iniciar gateway: %v", err)
