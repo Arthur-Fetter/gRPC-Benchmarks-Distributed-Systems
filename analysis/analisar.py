@@ -70,8 +70,8 @@ def grafico_payload_por_itens(df: pd.DataFrame, operacao: str = "ObterCarrinho")
         dados = sub[sub["protocolo"] == proto]
         ax.plot(dados["num_itens"], dados["payload_kb"], marker="o", label=proto, color=cor, linewidth=2.5, markersize=6)
 
-    ax.set_title(f"Tamanho do Payload vs Número de Itens\n(Operação: {operacao})", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Número de itens no carrinho (escala logarítmica)")
+    ax.set_title(f"Tamanho do Payload por Número de Itens ({operacao})", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Número de itens no carrinho")
     ax.set_ylabel("Tamanho médio do payload (KB)")
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -91,8 +91,8 @@ def grafico_tempo_por_itens(df: pd.DataFrame, operacao: str = "ObterCarrinho"):
         dados = sub[sub["protocolo"] == proto]
         ax.plot(dados["num_itens"], dados["tempo_total_ms"], marker="s", label=proto, color=cor, linewidth=2.5, markersize=6)
 
-    ax.set_title(f"Tempo de RTT Médio vs Número de Itens\n(Operação: {operacao})", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Número de itens no carrinho (escala logarítmica)")
+    ax.set_title(f"Tempo de RTT Médio por Número de Itens ({operacao})", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Número de itens no carrinho")
     ax.set_ylabel("Tempo médio de RTT (ms)")
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -123,9 +123,9 @@ def grafico_decomposicao_tempo(df: pd.DataFrame, operacao: str = "ObterCarrinho"
         ax.bar(x + offsets[proto], dados["tempo_rede_ms"],        largura, label=f"{proto} — Rede",          color=cor_base, alpha=0.9)
         ax.bar(x + offsets[proto], dados["tempo_serializacao_ms"],largura, label=f"{proto} — Serialização",  color=cor_base, alpha=0.45, bottom=dados["tempo_rede_ms"])
 
-    ax.set_title(f"Decomposição do Tempo: Rede + Serialização\n(Operação: {operacao})", fontsize=14, fontweight="bold")
+    ax.set_title(f"Decomposição do Tempo por Número de Itens ({operacao})", fontsize=14, fontweight="bold")
     ax.set_xlabel("Número de itens no carrinho")
-    ax.set_ylabel("Tempo médio (ms, escala logarítmica)")
+    ax.set_ylabel("Tempo médio (ms)")
     ax.set_yscale("log")
     ax.set_xticks(x)
     ax.set_xticklabels([str(n) for n in num_itens_vals], rotation=45, ha="right")
@@ -159,8 +159,7 @@ def grafico_boxplot_tempo(df: pd.DataFrame):
 
 
     fig.suptitle(
-        "Distribuição do Tempo de RTT — gRPC vs JSON (ObterCarrinho)\n"
-        "(eixo Y independente por tamanho)",
+        "Distribuição do Tempo de RTT por Tamanho de Carrinho",
         fontsize=14, fontweight="bold",
     )
     plt.tight_layout()
@@ -181,7 +180,7 @@ def grafico_fator_compressao(df: pd.DataFrame):
         ax.set_ylabel("Fator (JSON / gRPC)" if ax == axes[0] else "")
         ax.legend()
 
-    fig.suptitle("Fator de Compressão: Payload JSON em relação ao gRPC\n(quanto maior, mais eficiente é o gRPC)", fontsize=13, fontweight="bold")
+    fig.suptitle("Fator de Compressão de Payload: JSON em relação ao gRPC", fontsize=13, fontweight="bold")
     plt.tight_layout()
     salvar(fig, "5_fator_compressao")
 
@@ -193,7 +192,7 @@ def grafico_heatmap(df: pd.DataFrame):
     for ax, proto in zip(axes, ["gRPC", "JSON"]):
         pivot = df[df["protocolo"] == proto].groupby(["operacao", "num_itens"])["tempo_total_ms"].mean().unstack()
         sns.heatmap(pivot, annot=True, fmt=".1f", cmap="YlOrRd", ax=ax, linewidths=0.5)
-        ax.set_title(f"Tempo médio RTT (ms) — {proto}", fontweight="bold")
+        ax.set_title(f"Tempo médio de RTT ({proto})", fontweight="bold")
         ax.set_xlabel("Número de itens")
         ax.set_ylabel("Operação")
 
@@ -240,8 +239,7 @@ def grafico_serializacao_por_itens(df: pd.DataFrame):
         ax.legend(title="Protocolo")
 
     fig.suptitle(
-        "Tempo de Serialização vs Número de Itens\n"
-        "(escala log-log — inclinação revela crescimento do custo)",
+        "Tempo de Serialização por Número de Itens",
         fontsize=14,
         fontweight="bold",
     )
@@ -280,11 +278,10 @@ def grafico_concorrencia(caminho_csv: str):
         ax.plot(dados["concorrencia"], dados["throughput_medio"],
                 marker="o", label=proto, color=cor, linewidth=2.5, markersize=6)
     ax.set_title(
-        "Throughput vs Concorrência\n"
-        "(HTTP/2 Multiplexing — gRPC vs HTTP/1.1 — JSON)",
+        "Throughput por Nível de Concorrência",
         fontsize=14, fontweight="bold",
     )
-    ax.set_xlabel("Número de workers simultâneos")
+    ax.set_xlabel("Workers simultâneos")
     ax.set_ylabel("Throughput médio (req/s)")
     ax.legend(title="Protocolo")
     plt.tight_layout()
@@ -302,12 +299,11 @@ def grafico_concorrencia(caminho_csv: str):
             ax.plot(dados["concorrencia"], dados[col],
                     marker="s", label=proto, color=cor, linewidth=2.5, markersize=6)
         ax.set_title(titulo, fontweight="bold")
-        ax.set_xlabel("Número de workers simultâneos")
+        ax.set_xlabel("Workers simultâneos")
         ax.set_ylabel("Latência (ms)")
         ax.legend(title="Protocolo")
     fig.suptitle(
-        "Latência sob Carga Concorrente\n"
-        "(como cada protocolo degrada com o aumento de workers)",
+        "Latência por Nível de Concorrência",
         fontsize=14, fontweight="bold",
     )
     plt.tight_layout()
@@ -348,7 +344,21 @@ if __name__ == "__main__":
     grafico_serializacao_por_itens(df)
 
     # Gráficos de concorrência (CSV separado)
-    csv_conc = sys.argv[2] if len(sys.argv) > 2 else "resultados/concorrencia_latest.csv"
-    grafico_concorrencia(csv_conc)
+    import glob as _glob
+    if len(sys.argv) > 2:
+        # Usa o último argumento que contenha "concorrencia" no nome,
+        # ou simplesmente o segundo argumento passado
+        candidatos = [a for a in sys.argv[2:] if "concorrencia" in a]
+        csv_conc = candidatos[-1] if candidatos else sys.argv[2]
+    else:
+        arquivos = sorted(_glob.glob("resultados/concorrencia_*.csv"))
+        csv_conc = arquivos[-1] if arquivos else None
+
+    if csv_conc:
+        print(f"\n📈 Gerando gráficos de concorrência ({csv_conc})...")
+        grafico_concorrencia(csv_conc)
+    else:
+        print("\n⚠️  Nenhum CSV de concorrência encontrado em resultados/")
+        print("   Execute: POST /concorrencia/iniciar")
 
     print(f"\n✅ Todos os gráficos salvos em './{PASTA_GRAFICOS}/'")
