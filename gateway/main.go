@@ -246,7 +246,7 @@ func executarBenchmark(conn *grpc.ClientConn, baseHTTP string, iteracoes, aqueci
 
 	for _, numItens := range tamanhosCarrinho {
 		carrinhoID := fmt.Sprintf("cart-%d", numItens)
-		log.Printf("📦 Testando carrinho com %d itens...", numItens)
+		log.Printf("Testando carrinho com %d itens...", numItens)
 
 		// Aquecimento — descartado
 		for i := 0; i < aquecimento; i++ {
@@ -278,12 +278,12 @@ func executarBenchmark(conn *grpc.ClientConn, baseHTTP string, iteracoes, aqueci
 	// Salva CSV em disco automaticamente
 	nomeArquivo := fmt.Sprintf("%s/serial_%s.csv", pastaResultados, time.Now().Format("20060102_150405"))
 	if err := metrics.SalvarCSV(todasMedicoes, nomeArquivo); err != nil {
-		log.Printf("⚠️  Erro ao salvar CSV: %v", err)
+		log.Printf("ERRO ao salvar CSV: %v", err)
 	} else {
-		log.Printf("💾 CSV salvo em: %s", nomeArquivo)
+		log.Printf("CSV salvo em: %s", nomeArquivo)
 	}
 
-	log.Printf("✅ Benchmark serial concluído. Total de medições: %d", len(todasMedicoes))
+	log.Printf("Benchmark serial concluido. Total de medições: %d", len(todasMedicoes))
 }
 
 // ─── Benchmarks gRPC ──────────────────────────────────────────────────────────
@@ -641,7 +641,7 @@ func executarBenchmarkConcorrencia(conn *grpc.ClientConn, baseHTTP string, rodad
 	var todasMedicoes []metrics.MedicaoConcorrencia
 
 	for _, conc := range niveisConcorrencia {
-		log.Printf("⚡ Testando concorrência=%d...", conc)
+		log.Printf("Testando concorrencia=%d...", conc)
 
 		// Aquecimento
 		for i := 0; i < aquecimento; i++ {
@@ -662,9 +662,9 @@ func executarBenchmarkConcorrencia(conn *grpc.ClientConn, baseHTTP string, rodad
 	// Salva CSV em disco
 	nomeArquivo := fmt.Sprintf("%s/concorrencia_%s.csv", pastaResultados, time.Now().Format("20060102_150405"))
 	if err := metrics.SalvarCSVConcorrencia(todasMedicoes, nomeArquivo); err != nil {
-		log.Printf("⚠️  Erro ao salvar CSV de concorrência: %v", err)
+		log.Printf("ERRO ao salvar CSV de concorrencia: %v", err)
 	} else {
-		log.Printf("💾 CSV de concorrência salvo em: %s", nomeArquivo)
+		log.Printf("CSV de concorrencia salvo em: %s", nomeArquivo)
 	}
 
 	estadoConc.mu.Lock()
@@ -672,7 +672,7 @@ func executarBenchmarkConcorrencia(conn *grpc.ClientConn, baseHTTP string, rodad
 	estadoConc.rodando = false
 	estadoConc.mu.Unlock()
 
-	log.Printf("✅ Benchmark de concorrência concluído. Total de medições: %d", len(todasMedicoes))
+	log.Printf("Benchmark de concorrencia concluido. Total de medições: %d", len(todasMedicoes))
 }
 
 // rodadaConcorrente dispara `conc` workers simultaneamente para gRPC e JSON
@@ -790,7 +790,7 @@ func responderJSON(w http.ResponseWriter, status int, v interface{}) {
 func main() {
 	cfg := carregarConfig()
 
-	log.Printf("🚀 Gateway Service iniciando na porta :%s", cfg.gatewayPort)
+	log.Printf("Gateway Service iniciando na porta :%s", cfg.gatewayPort)
 	log.Printf("   Carrinho Service: %s (gRPC) | %s (HTTP)", cfg.portaGRPC, cfg.baseHTTP)
 
 	mux := http.NewServeMux()

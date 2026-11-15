@@ -43,7 +43,7 @@ def resumo_estatistico(df: pd.DataFrame):
     print("="*80)
     for op in df["operacao"].unique():
         sub = df[df["operacao"] == op]
-        print(f"\n📦 Operação: {op}")
+        print(f"\nOperacao: {op}")
         print(f"{'Métrica':<35} {'gRPC':>12} {'JSON':>12} {'Redução':>10}")
         print("-" * 72)
         for metrica, col in [
@@ -140,7 +140,7 @@ def grafico_boxplot_tempo(df: pd.DataFrame):
     tamanhos_disponiveis = sorted(df["num_itens"].unique())
     tamanhos_foco = tamanhos_disponiveis[-4:]
     if len(tamanhos_foco) < 2:
-        print("  ⚠️  Boxplot ignorado: dados insuficientes (mínimo 2 tamanhos)")
+        print("  AVISO: Boxplot ignorado: dados insuficientes (mínimo 2 tamanhos)")
         return
     sub = df[df["num_itens"].isin(tamanhos_foco) & (df["operacao"] == "ObterCarrinho")]
 
@@ -257,7 +257,7 @@ def grafico_concorrencia(caminho_csv: str):
       9 — Latência média e p99 vs workers simultâneos
     """
     if not os.path.exists(caminho_csv):
-        print(f"  ⚠️  CSV de concorrência não encontrado: {caminho_csv}")
+        print(f"  AVISO: CSV de concorrencia nao encontrado: {caminho_csv}")
         return
 
     df = pd.read_csv(caminho_csv)
@@ -314,7 +314,7 @@ def salvar(fig: plt.Figure, nome: str):
     os.makedirs(PASTA_GRAFICOS, exist_ok=True)
     caminho = os.path.join(PASTA_GRAFICOS, f"{nome}.png")
     fig.savefig(caminho, dpi=150, bbox_inches="tight")
-    print(f"  💾 Salvo: {caminho}")
+    print(f"  Salvo: {caminho}")
     plt.close(fig)
 
 
@@ -325,7 +325,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     caminho_csv = sys.argv[1]
-    print(f"📊 Carregando dados de: {caminho_csv}")
+    print(f"Carregando dados de: {caminho_csv}")
     df = carregar_dados(caminho_csv)
     print(f"   {len(df)} medições válidas carregadas.")
     print(f"   Protocolos:  {df['protocolo'].unique().tolist()}")
@@ -334,7 +334,7 @@ if __name__ == "__main__":
 
     resumo_estatistico(df)
 
-    print("\n📈 Gerando gráficos...")
+    print("\nGerando graficos...")
     grafico_payload_por_itens(df)
     grafico_tempo_por_itens(df)
     grafico_decomposicao_tempo(df)
@@ -355,10 +355,10 @@ if __name__ == "__main__":
         csv_conc = arquivos[-1] if arquivos else None
 
     if csv_conc:
-        print(f"\n📈 Gerando gráficos de concorrência ({csv_conc})...")
+        print(f"\nGerando graficos de concorrencia ({csv_conc})...")
         grafico_concorrencia(csv_conc)
     else:
-        print("\n⚠️  Nenhum CSV de concorrência encontrado em resultados/")
+        print("\nAVISO: Nenhum CSV de concorrencia encontrado em resultados/")
         print("   Execute: POST /concorrencia/iniciar")
 
-    print(f"\n✅ Todos os gráficos salvos em './{PASTA_GRAFICOS}/'")
+    print(f"\nGraficos salvos em './{PASTA_GRAFICOS}/'")

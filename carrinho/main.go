@@ -196,7 +196,7 @@ func main() {
 		s := grpc.NewServer()
 		pb.RegisterCarrinhoServiceServer(s, &servidorGRPC{})
 		reflection.Register(s) // permite inspeção com grpcurl
-		log.Printf("✅ Servidor gRPC escutando em :%s", portaGRPC)
+		log.Printf("Servidor gRPC escutando em :%s", portaGRPC)
 		if err := s.Serve(lis); err != nil {
 			log.Fatalf("falha ao servir gRPC: %v", err)
 		}
@@ -212,7 +212,7 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	log.Printf("✅ Servidor HTTP/JSON escutando em :%s", portaHTTP)
+	log.Printf("Servidor HTTP/JSON escutando em :%s", portaHTTP)
 	if err := http.ListenAndServe(":"+portaHTTP, mux); err != nil {
 		log.Fatalf("falha ao servir HTTP: %v", err)
 	}
